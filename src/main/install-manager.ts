@@ -27,12 +27,17 @@ import type {
 
 const BOOTSTRAP_PROJECT_DIR_NAME = '.launcher-bootstrap';
 const MIN_BOOTSTRAP_INSTALL_VERSION = '6.14.0rc1';
+// The first Invoke release whose `xpu` extra exists. Older versions do not
+// declare the extra and have no `xpu` key in their pins.json, so installing
+// for Intel Arc would silently resolve a torch build that cannot drive an
+// Arc GPU (e.g. the CUDA build on Linux or the CPU-only wheel on Windows).
+const MIN_XPU_INSTALL_VERSION = '6.14.0rc2';
 
 const shouldUseBootstrapInstall = (version: string): boolean => {
   return compare(version.replace(/^v/, ''), MIN_BOOTSTRAP_INSTALL_VERSION) >= 0;
 };
 
-const getInvokeExtras = (gpuType: GpuType, torchPlatform: 'cuda' | 'rocm' | 'cpu' | 'xpu' | null): string[] => {
+export const getInvokeExtras = (gpuType: GpuType, torchPlatform: 'cuda' | 'rocm' | 'cpu' | 'xpu' | null): string[] => {
   const extras: string[] = [];
 
   if (torchPlatform && process.platform !== 'darwin') {
@@ -228,6 +233,16 @@ export class InstallManager {
     const useBootstrapInstall = shouldUseBootstrapInstall(version);
     let invokeExtras = getInvokeExtras(gpuType, useBootstrapInstall ? torchPlatform : null);
 
+    // Fail fast when XPU is selected but the requested Invoke version predates XPU support. Older releases have no
+    // `xpu` extra and no `xpu` key in their pins.json, so the legacy pip path would silently resolve a torch build
+    // that cannot drive an Arc GPU (e.g. the CUDA build on Linux or the CPU-only wheel on Windows) with no error.
+    if (torchPlatform === 'xpu' && !useBootstrapInstall) {
+      const message = `XPU (Intel Arc) support requires Invoke ${MIN_XPU_INSTALL_VERSION} or newer. Please select a version >= ${MIN_XPU_INSTALL_VERSION}.`;
+      this.log.error(c.red(`${message}\r\n`));
+      this.updateStatus({ type: 'error', error: { message } });
+      return;
+    }
+
     const bootstrapProjectPath = path.resolve(path.join(location, BOOTSTRAP_PROJECT_DIR_NAME));
     await fs.rm(bootstrapProjectPath, { recursive: true, force: true }).catch(() => {
       this.log.warn(c.yellow('Failed to delete previous bootstrap project\r\n'));
@@ -261,6 +276,16 @@ export class InstallManager {
       const declaredExtras = getDeclaredOptionalDependencies(releaseFiles.pyprojectToml);
       const omittedExtras = invokeExtras.filter((extra) => !declaredExtras.has(extra));
       invokeExtras = invokeExtras.filter((extra) => declaredExtras.has(extra));
+
+      // Fail fast if XPU was requested but this release does not declare the `xpu` extra. Continuing would resolve
+      // torch from the default PyPI index (the CUDA build on Linux, CPU-only on Windows) and report a successful
+      // install that cannot drive an Arc GPU. Non-XPU omitted extras keep the historical warn-and-continue behavior.
+      if (torchPlatform === 'xpu' && omittedExtras.includes('xpu')) {
+        const message = `Invoke ${version} does not support XPU (Intel Arc). Please select a version >= ${MIN_XPU_INSTALL_VERSION}.`;
+        this.log.error(c.red(`${message}\r\n`));
+        this.updateStatus({ type: 'error', error: { message } });
+        return;
+      }
 
       if (omittedExtras.length > 0) {
         this.log.warn(c.yellow(`Skipping undefined Invoke package extras: ${omittedExtras.join(', ')}\r\n`));
@@ -605,6 +630,14 @@ export class InstallManager {
       const torchIndexUrl = pins.torchIndexUrl[systemPlatform][torchPlatform];
       if (torchIndexUrl) {
         installInvokeArgs.push(`--index=${torchIndexUrl}`);
+      } else if (torchPlatform !== 'cpu') {
+        // A missing index for a non-cpu platform means uv will resolve torch from the default PyPI index, which
+        // typically resolves to a CUDA build on Linux and a CPU-only wheel on Windows - neither can drive the
+        // selected GPU. Fail fast rather than silently installing a torch build that cannot use the selected device.
+        const message = `No torch index found in pins.json for ${systemPlatform}/${torchPlatform}. Cannot install for the selected GPU type.`;
+        this.log.error(c.red(`${message}\r\n`));
+        this.updateStatus({ type: 'error', error: { message } });
+        return;
       }
     }
 

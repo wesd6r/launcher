@@ -7,6 +7,11 @@ import tsconfigPaths from 'vite-tsconfig-paths';
 export default defineConfig({
   main: {
     plugins: [tsconfigPaths()],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, './src'),
+      },
+    },
     build: {
       lib: {
         entry: resolve('src/main/index.ts'),
@@ -18,6 +23,11 @@ export default defineConfig({
   },
   preload: {
     plugins: [tsconfigPaths()],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, './src'),
+      },
+    },
     build: {
       lib: {
         entry: resolve('src/preload/index.ts'),
@@ -34,6 +44,11 @@ export default defineConfig({
         template: process.env.NODE_ENV === 'development' ? './index.dev.html' : './index.html',
       }),
     ],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, './src'),
+      },
+    },
     build: {
       rollupOptions: {
         input: {

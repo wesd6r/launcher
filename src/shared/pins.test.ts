@@ -7,11 +7,13 @@ const pins = {
   torchIndexUrl: {
     win32: {
       cuda: 'https://download.pytorch.org/whl/cu128',
+      xpu: 'https://download.pytorch.org/whl/xpu',
     },
     linux: {
       cpu: 'https://download.pytorch.org/whl/cpu',
       rocm: 'https://download.pytorch.org/whl/rocm7.1',
       cuda: 'https://download.pytorch.org/whl/cu128',
+      xpu: 'https://download.pytorch.org/whl/xpu',
     },
     darwin: {},
   },

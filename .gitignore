@@ -102,6 +102,7 @@ out/
 
 # Electron-builder
 dist/
+dist-build/
 
 # uv executables
 uv
